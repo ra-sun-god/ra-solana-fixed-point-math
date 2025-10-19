@@ -1,0 +1,22 @@
+version: 2.1
+jobs:
+  build:
+    docker:
+      - image: cimg/rust:1.90.0
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - cargo-{{ checksum "Cargo.lock" }}
+      - run:
+          name: Run Cargo tests
+          command: cargo test
+      - save_cache:
+          paths:
+            - ~/.cargo
+            - ./target
+          key: cargo-{{ checksum "Cargo.lock" }}
+workflows:
+  build-and-test:
+    jobs:
+      - build
