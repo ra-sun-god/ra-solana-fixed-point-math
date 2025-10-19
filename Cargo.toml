@@ -1,0 +1,34 @@
+[package]
+name = "ra_solana_fixed_point_math"
+version = "0.1.0"
+edition = "2024"
+description = "High-performance fixed-point arithmetic library optimized for Solana anchorlang programs"
+license = "MIT"  # Or your preferred 
+authors = ["Ra' <razzsense@gmail.com>"]
+repository = "https://github.com/ra-sun-god/ra-solana-fixed-point-math"  # Optional
+keywords = ["solana", "fixed-point", "math", "anchor", "anchorlang", "defi"]
+categories = ["mathematics", "cryptography::arithmetic"]
+documentation = "https://docs.rs/ra-solana-fixed-point-math"
+readme = "README.md"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+uint =  { version = "0.8.5",  default-features = false } # For U256
+anchor-lang = { version = ">=0.28.0", default-features = false }
+
+
+[dev-dependencies]
+anchor-lang = "0.32.1"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+doctest = false
+
+
+[features]
+default = []
+# Optional: no-entrypoint for non-Solana use
+no-entrypoint = []
