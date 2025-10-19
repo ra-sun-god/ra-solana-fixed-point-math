@@ -431,17 +431,6 @@ at your option.
 - **Issues**: [GitHub Issues](https://github.com/ra-sun-god/ra-solana-fixed-point-math/issues)
 
 
-## 🗺️ Roadmap
-
-- [ ] Signed fixed-point numbers
-- [ ] Additional trigonometric functions (sin, cos, tan)
-- [ ] Optimized Taylor series coefficients
-- [ ] Binary logarithm optimization
-- [ ] Fuzzing test suite
-- [ ] Compute unit profiler integration
-- [ ] JavaScript/TypeScript bindings
-
----
 
 **Made with ❤️ for the Solana ecosystem**
 
