@@ -40,7 +40,7 @@ cargo add ra-solana-fixed-point-math
 use solana_fixed_point_math::fixed_point_math::FixedPoint;
 
 // Create fixed-point numbers
-let price = FixedPoint::from_int(100);           // 100.0
+let price = FixedPoint::from_int(100);           // 100
 let fee = FixedPoint::from_percent(5)?;          // 5% = 0.05
 let multiplier = FixedPoint::from_ratio(3, 2)?;  // 3/2 = 1.5
 
