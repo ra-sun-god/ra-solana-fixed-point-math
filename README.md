@@ -4,7 +4,7 @@
 [![Crates.io](https://img.shields.io/crates/v/ra-solana-fixed-point-math.svg)](https://crates.io/crates/ra-solana-fixed-point-math)
 [![Documentation](https://docs.rs/ra-solana-fixed-point-math/badge.svg)](https://docs.rs/solana-fixed-point-math)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Build Status](https://github.com/ra-sun-god/ra-solana-fixed-point-math/workflows/CI/badge.svg)](https://github.com/ra-sun-god/ra-solana-fixed-point-math/actions)
+[![CircleCI](https://dl.circleci.com/status-badge/img/circleci/8Z8Uvfj2JWGZSXYhY2fK3M/GZzj3HJKrQkj6cohmmGuZs/tree/main.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/circleci/8Z8Uvfj2JWGZSXYhY2fK3M/GZzj3HJKrQkj6cohmmGuZs/tree/main)
 
 A high-performance, fixed-point arithmetic library optimized for Solana smart contracts. Provides safe, deterministic mathematical operations with 18 decimal places of precision, designed to minimize compute units while maximizing accuracy.
 
@@ -367,6 +367,8 @@ To minimize CU usage:
 - Prefer `sqrt()` over `pow(x, 0.5)` for square roots
 - Cache repeated calculations
 - Use `pow2_fast()` for powers of 2
+
+
 
 ## 🤝 Contributing
 

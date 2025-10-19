@@ -1,5 +1,5 @@
 [package]
-name = "ra_solana_fixed_point_math"
+name = "ra-solana-fixed-point-math"
 version = "0.1.0"
 edition = "2024"
 description = "High-performance fixed-point arithmetic library optimized for Solana anchorlang programs"
