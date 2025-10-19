@@ -2,7 +2,7 @@ version: 2.1
 jobs:
   build:
     docker:
-      - image: cimg/rust:stable
+      - image: cimg/rust:1.90.0
     steps:
       - checkout
       - restore_cache:
