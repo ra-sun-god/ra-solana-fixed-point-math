@@ -225,22 +225,6 @@ pub struct Swap<'info> {
 }
 ```
 
-## 📊 Performance
-
-### Compute Unit Benchmarks
-
-| Operation | Compute Units | Comparison to f64 |
-|-----------|--------------|-------------------|
-| Addition | ~50 CU | ~1x |
-| Multiplication | ~150 CU | ~1.2x |
-| Division | ~200 CU | ~1.3x |
-| Square Root | ~800 CU | ~2x |
-| Power (integer) | ~500-2000 CU | ~3x |
-| Logarithm | ~1500 CU | ~5x |
-| Exponential | ~2000 CU | ~5x |
-
-*Note: f64 operations are not deterministic across different validators, making fixed-point essential for Solana programs.*
-
 ### Precision
 
 - **Scale Factor**: 10^18 (18 decimal places)
