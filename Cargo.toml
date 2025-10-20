@@ -1,6 +1,6 @@
 [package]
 name = "ra-solana-math"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "High-performance fixed-point arithmetic library optimized for Solana anchorlang programs"
 license = "MIT"  # Or your preferred 
