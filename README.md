@@ -2,7 +2,7 @@
 # 🧮 Solana Fixed-Point Math Library
 
 [![Crates.io](https://img.shields.io/crates/v/ra-solana-math.svg)](https://crates.io/crates/ra-solana-math)
-[![Documentation](https://docs.rs/ra-solana-math/badge.svg)](https://docs.rs/solana-fixed-point-math)
+[![Documentation](https://docs.rs/ra-solana-math/badge.svg)](https://docs.rs/ra-solana-math)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CircleCI](https://dl.circleci.com/status-badge/img/circleci/8Z8Uvfj2JWGZSXYhY2fK3M/GZzj3HJKrQkj6cohmmGuZs/tree/main.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/circleci/8Z8Uvfj2JWGZSXYhY2fK3M/GZzj3HJKrQkj6cohmmGuZs/tree/main)
 ![Build & Test Status](https://github.com/ra-sun-god/ra-solana-math/actions/workflows/rust.yml/badge.svg)
@@ -39,7 +39,7 @@ cargo add ra-solana-math
 ## 🚀 Quick Start
 
 ```rust
-use ra_solana_math::FixedPoint;
+use ra_solana_math::fixed_point_math::FixedPoint;
 
 // Create fixed-point numbers
 let price = FixedPoint::from_int(100);           // 100
@@ -61,7 +61,7 @@ let log_price = price.ln()?;                     // ln(100) ≈ 4.605
 ### Basic Arithmetic
 
 ```rust
-use ra_solana_math::FixedPoint;
+use ra_solana_math::fixed_point_math::FixedPoint;
 
 let a = FixedPoint::from_int(10);
 let b = FixedPoint::from_int(3);
@@ -174,7 +174,7 @@ let max = a.max(&b);                                 // 5.0
 
 ```rust
 use anchor_lang::prelude::*;
-use ra_solana_math::FixedPoint;
+use ra_solana_math::fixed_point_math::FixedPoint;
 
 #[program]
 pub mod my_defi_protocol {

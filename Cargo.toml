@@ -17,6 +17,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 uint =  { version = "0.8.5",  default-features = false } # For U256
+anchor-lang = { version = ">=0.28.0", default-features = false }
 
 
 [dev-dependencies]
