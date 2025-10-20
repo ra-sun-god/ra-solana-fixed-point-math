@@ -1,5 +1,5 @@
 [package]
-name = "ra-solana-fixed-point-math"
+name = "ra-solana-math"
 version = "0.1.0"
 edition = "2021"
 description = "High-performance fixed-point arithmetic library optimized for Solana anchorlang programs"
@@ -17,7 +17,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 uint =  { version = "0.8.5",  default-features = false } # For U256
-anchor-lang = { version = ">=0.28.0", default-features = false }
 
 
 [dev-dependencies]

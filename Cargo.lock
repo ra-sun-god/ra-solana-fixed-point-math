@@ -674,7 +674,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ra-solana-fixed-point-math"
+name = "ra-solana-math"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",

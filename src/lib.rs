@@ -34,13 +34,22 @@
 
 
 use uint::construct_uint;
-use anchor_lang::{err, error, error_code, require, Result};
 
 
 construct_uint! {
     pub struct U256(4);
 }
 
+pub type Result<T> = std::result::Result<T, MathError>;
+
+#[macro_export]
+macro_rules! require {
+    ($cond:expr, $err:expr $(,)?) => {
+        if !$cond {
+            return Err($err);
+        }
+    };
+}
 
 /// Fixed-point math library optimized for Solana compute units.
 /// 
@@ -102,7 +111,7 @@ fn scale_u256() -> U256 {
 /// * `MathError::Overflow` - If the operation would overflow U256
 fn mul_div_u256(a: U256, b: U256, divisor: U256) -> Result<U256> {
     if divisor.is_zero() {
-        return err!(MathError::DivisionByZero);
+        return Err(MathError::DivisionByZero);
     }
 
     if a.is_zero() || b.is_zero() {
@@ -236,7 +245,7 @@ impl FixedPoint {
     pub fn to_u64(&self) -> Result<u64> {
         let int_part = self.value / scale_u256();
         if int_part.0[1] != 0 || int_part.0[2] != 0 || int_part.0[3] != 0 {
-            return err!(MathError::Overflow);
+            return Err(MathError::Overflow);
         }
         Ok(int_part.0[0])
     }
@@ -255,7 +264,7 @@ impl FixedPoint {
     pub fn to_u128(&self) -> Result<u128> {
         let int_part = self.value / scale_u256();
         if int_part.0[2] != 0 || int_part.0[3] != 0 {
-            return err!(MathError::Overflow);
+            return Err(MathError::Overflow);
         }
         Ok(int_part.0[0] as u128 | ((int_part.0[1] as u128) << 64))
     }
@@ -283,7 +292,7 @@ impl FixedPoint {
         let value_u128 = if self.value.0[2] == 0 && self.value.0[3] == 0 {
             self.value.0[0] as u128 | ((self.value.0[1] as u128) << 64)
         } else {
-            return err!(MathError::Overflow);
+            return Err(MathError::Overflow);
         };
         
         Ok((value_u128 as f64) / (SCALE as f64))
@@ -319,7 +328,7 @@ impl FixedPoint {
         let scaled = val * (SCALE as f64);
         
         if scaled > (u128::MAX as f64) {
-            return err!(MathError::Overflow);
+            return Err(MathError::Overflow);
         }
         
         let scaled_u128 = scaled as u128;
@@ -481,7 +490,7 @@ impl FixedPoint {
     /// * `MathError::Overflow` - If the sum exceeds U256::MAX
     pub fn add(&self, other: &Self) -> Result<Self> {
         let result = self.value.checked_add(other.value)
-            .ok_or(error!(MathError::Overflow))?;
+            .ok_or(MathError::Overflow)?;
         Ok(Self { value: result })
     }
 
@@ -500,7 +509,7 @@ impl FixedPoint {
     /// * `MathError::Underflow` - If other is larger than self
     pub fn sub(&self, other: &Self) -> Result<Self> {
         let result = self.value.checked_sub(other.value)
-            .ok_or(error!(MathError::Underflow))?;
+            .ok_or(MathError::Underflow)?;
         Ok(Self { value: result })
     }
 
@@ -755,8 +764,8 @@ impl FixedPoint {
             exp_adj -= 1;
         }
 
-        let num = x.checked_sub(scale).ok_or(error!(MathError::Underflow))?;
-        let den = x.checked_add(scale).ok_or(error!(MathError::Overflow))?;
+        let num = x.checked_sub(scale).ok_or(MathError::Underflow)?;
+        let den = x.checked_add(scale).ok_or(MathError::Overflow)?;
         let y = mul_div_u256(num, scale, den)?;
 
         let y2 = mul_div_u256(y, y, scale)?;
@@ -768,23 +777,23 @@ impl FixedPoint {
         for i in 0..denoms.len() {
             let denom = U256::from(denoms[i]);
             let term = (current_power + (denom / two)) / denom;
-            inner_sum = inner_sum.checked_add(term).ok_or(error!(MathError::Overflow))?;
+            inner_sum = inner_sum.checked_add(term).ok_or(MathError::Overflow)?;
 
             if i < denoms.len() - 1 {
                 current_power = mul_div_u256(current_power, y2, scale)?;
             }
         }
 
-        let two_y = y.checked_mul(two).ok_or(error!(MathError::Overflow))?;
+        let two_y = y.checked_mul(two).ok_or(MathError::Overflow)?;
         let ln_x = mul_div_u256(inner_sum, two_y, scale)?;
 
         let abs_exp = exp_adj.abs() as u64;
-        let adj_abs = LN_2.checked_mul(U256::from(abs_exp)).ok_or(error!(MathError::Overflow))?;
+        let adj_abs = LN_2.checked_mul(U256::from(abs_exp)).ok_or(MathError::Overflow)?;
 
         let final_value = if exp_adj >= 0 {
-            ln_x.checked_add(adj_abs).ok_or(error!(MathError::Overflow))?
+            ln_x.checked_add(adj_abs).ok_or(MathError::Overflow)?
         } else {
-            ln_x.checked_sub(adj_abs).ok_or(error!(MathError::Underflow))?
+            ln_x.checked_sub(adj_abs).ok_or(MathError::Underflow)?
         };
 
         Ok(Self::from_scaled(final_value))
@@ -829,7 +838,7 @@ impl FixedPoint {
         let k = if k_u256.0[1] == 0 && k_u256.0[2] == 0 && k_u256.0[3] == 0 {
             k_u256.0[0] as i64
         } else {
-            return err!(MathError::Overflow);
+            return Err(MathError::Overflow);
         };
         
         let k_abs = U256::from(k.abs() as u64);
@@ -838,7 +847,7 @@ impl FixedPoint {
         let r = if k >= 0 {
             x.checked_sub(k_ln2).unwrap_or(U256::zero())
         } else {
-            x.checked_add(k_ln2).ok_or(error!(MathError::Overflow))?
+            x.checked_add(k_ln2).ok_or(MathError::Overflow)?
         };
 
         let r2 = mul_div_u256(r, r, scale)?;
@@ -1075,21 +1084,33 @@ impl FixedPoint {
 }
 
 /// Error types for fixed-point math operations.
-#[error_code]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum MathError {
-    #[msg("Arithmetic overflow occurred")]
-    Overflow,
-    
-    #[msg("Arithmetic underflow occurred")]
-    Underflow,
-    
-    #[msg("Division by zero")]
-    DivisionByZero,
-    
-    #[msg("Invalid input value")]
-    InvalidInput,
+    Overflow = 0,
+    Underflow = 1,
+    DivisionByZero = 2,
+    InvalidInput = 3,
 }
 
+impl MathError {
+    pub const fn msg(self) -> &'static str {
+        const MSGS: [&str; 4] = [
+            "Arithmetic overflow occurred",
+            "Arithmetic underflow occurred",
+            "Division by zero",
+            "Invalid input value",
+        ];
+        MSGS[self as usize]
+    }
+
+    pub const fn code(self) -> u8 {
+        self as u8
+    }
+}
+
+
+// end error handler
 
 #[cfg(test)]
 mod tests {

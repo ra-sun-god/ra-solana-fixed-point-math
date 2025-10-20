@@ -1,11 +1,11 @@
 
 # 🧮 Solana Fixed-Point Math Library
 
-[![Crates.io](https://img.shields.io/crates/v/ra-solana-fixed-point-math.svg)](https://crates.io/crates/ra-solana-fixed-point-math)
-[![Documentation](https://docs.rs/ra-solana-fixed-point-math/badge.svg)](https://docs.rs/solana-fixed-point-math)
+[![Crates.io](https://img.shields.io/crates/v/ra-solana-math.svg)](https://crates.io/crates/ra-solana-math)
+[![Documentation](https://docs.rs/ra-solana-math/badge.svg)](https://docs.rs/solana-fixed-point-math)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CircleCI](https://dl.circleci.com/status-badge/img/circleci/8Z8Uvfj2JWGZSXYhY2fK3M/GZzj3HJKrQkj6cohmmGuZs/tree/main.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/circleci/8Z8Uvfj2JWGZSXYhY2fK3M/GZzj3HJKrQkj6cohmmGuZs/tree/main)
-![Build & Test Status](https://github.com/ra-sun-god/ra-solana-fixed-point-math/actions/workflows/rust.yml/badge.svg)
+![Build & Test Status](https://github.com/ra-sun-god/ra-solana-math/actions/workflows/rust.yml/badge.svg)
 
 
 A high-performance, fixed-point arithmetic library optimized for Solana smart contracts. Provides safe, deterministic mathematical operations with 18 decimal places of precision, designed to minimize compute units while maximizing accuracy.
@@ -26,20 +26,20 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ra-solana-fixed-point-math = "0.1.0"
+ra-solana-math = "0.1.0"
 anchor-lang = "0.29"
 ```
 
 Or using cargo:
 
 ```bash
-cargo add ra-solana-fixed-point-math
+cargo add ra-solana-math
 ```
 
 ## 🚀 Quick Start
 
 ```rust
-use solana_fixed_point_math::fixed_point_math::FixedPoint;
+use ra_solana_math::FixedPoint;
 
 // Create fixed-point numbers
 let price = FixedPoint::from_int(100);           // 100
@@ -61,7 +61,7 @@ let log_price = price.ln()?;                     // ln(100) ≈ 4.605
 ### Basic Arithmetic
 
 ```rust
-use solana_fixed_point_math::fixed_point_math::FixedPoint;
+use ra_solana_math::FixedPoint;
 
 let a = FixedPoint::from_int(10);
 let b = FixedPoint::from_int(3);
@@ -174,7 +174,7 @@ let max = a.max(&b);                                 // 5.0
 
 ```rust
 use anchor_lang::prelude::*;
-use solana_fixed_point_math::fixed_point_math::FixedPoint;
+use ra_solana_math::FixedPoint;
 
 #[program]
 pub mod my_defi_protocol {
@@ -390,8 +390,8 @@ Contributions are welcome! Please follow these guidelines:
 
 ```bash
 # Clone the repository
-git clone https://github.com/ra-sun-god/ra-solana-fixed-point-math.git
-cd ra-solana-fixed-point-math
+git clone https://github.com/ra-sun-god/ra-solana-math.git
+cd ra-solana-math
 
 # Install dependencies
 cargo build
@@ -429,8 +429,8 @@ at your option.
 
 ## 📞 Support
 
-- **Documentation**: [docs.rs/ra-solana-fixed-point-math](https://docs.rs/ra-solana-fixed-point-math)
-- **Issues**: [GitHub Issues](https://github.com/ra-sun-god/ra-solana-fixed-point-math/issues)
+- **Documentation**: [docs.rs/ra-solana-math](https://docs.rs/ra-solana-math)
+- **Issues**: [GitHub Issues](https://github.com/ra-sun-god/ra-solana-math/issues)
 
 
 
