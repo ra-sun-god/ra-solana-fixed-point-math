@@ -34,1069 +34,1067 @@
 
 
 use uint::construct_uint;
+use anchor_lang::{err, error, error_code, require, Result};
+
 
 construct_uint! {
     pub struct U256(4);
 }
 
 
-
 /// Fixed-point math library optimized for Solana compute units.
 /// 
 /// All values use 18 decimal places of precision (scale factor of 1e18).
 /// This means 1.0 is represented as 1_000_000_000_000_000_000 internally.
-pub mod ra_solana_fixed_point_math {
 
-    use anchor_lang::{err, error, error_code, require, Result};
 
-    use super::U256;
-    //use anchor_lang::prelude::*;
 
-    /// Scale factor for fixed-point arithmetic: 10^18
-    /// 
-    /// This constant defines the precision of the fixed-point representation.
-    /// All fixed-point values are internally stored as integers multiplied by this scale.
-    pub const SCALE: u128 = 1_000_000_000_000_000_000;
-    
-    /// Natural logarithm of 2: ln(2) ≈ 0.693147180559945309
-    /// 
-    /// Pre-computed constant used in logarithm and exponential calculations.
-    const LN_2: U256 = U256([693_147_180_559_945_309, 0, 0, 0]);
-    
-    /// Natural logarithm of 10: ln(10) ≈ 2.302585092994045684
-    /// 
-    /// Pre-computed constant used for base-10 logarithm calculations.
-    const LN_10: U256 = U256([2_302_585_092_994_045_684, 0, 0, 0]);
-    
-    /// Maximum safe input for exp function to prevent overflow
-    /// 
-    /// This limit ensures that e^x doesn't overflow the U256 representation.
-    /// Approximately equal to ln(U256::MAX / SCALE).
-    const MAX_EXP_INPUT: U256 = U256([7_237_005_577_332_262_321, 7, 0, 0]);
 
-    /// Returns the scale factor as a U256.
-    /// 
-    /// This is a convenience function to avoid repeated conversions.
-    #[inline]
-    fn scale_u256() -> U256 {
-        U256::from(SCALE)
+/// Scale factor for fixed-point arithmetic: 10^18
+/// 
+/// This constant defines the precision of the fixed-point representation.
+/// All fixed-point values are internally stored as integers multiplied by this scale.
+pub const SCALE: u128 = 1_000_000_000_000_000_000;
+
+/// Natural logarithm of 2: ln(2) ≈ 0.693147180559945309
+/// 
+/// Pre-computed constant used in logarithm and exponential calculations.
+const LN_2: U256 = U256([693_147_180_559_945_309, 0, 0, 0]);
+
+/// Natural logarithm of 10: ln(10) ≈ 2.302585092994045684
+/// 
+/// Pre-computed constant used for base-10 logarithm calculations.
+const LN_10: U256 = U256([2_302_585_092_994_045_684, 0, 0, 0]);
+
+/// Maximum safe input for exp function to prevent overflow
+/// 
+/// This limit ensures that e^x doesn't overflow the U256 representation.
+/// Approximately equal to ln(U256::MAX / SCALE).
+const MAX_EXP_INPUT: U256 = U256([7_237_005_577_332_262_321, 7, 0, 0]);
+
+/// Returns the scale factor as a U256.
+/// 
+/// This is a convenience function to avoid repeated conversions.
+#[inline]
+fn scale_u256() -> U256 {
+    U256::from(SCALE)
+}
+
+/// Performs (a * b) / divisor with overflow detection.
+/// 
+/// This function safely computes the result of multiplying two U256 values
+/// and dividing by a third, with special handling to prevent overflow during
+/// the intermediate multiplication step.
+///
+/// # Arguments
+///
+/// * `a` - First multiplicand
+/// * `b` - Second multiplicand
+/// * `divisor` - The divisor (must be non-zero)
+///
+/// # Returns
+///
+/// The result of (a * b) / divisor, or an error if overflow occurs or divisor is zero.
+///
+/// # Errors
+///
+/// * `MathError::DivisionByZero` - If divisor is zero
+/// * `MathError::Overflow` - If the operation would overflow U256
+fn mul_div_u256(a: U256, b: U256, divisor: U256) -> Result<U256> {
+    if divisor.is_zero() {
+        return err!(MathError::DivisionByZero);
     }
 
-    /// Performs (a * b) / divisor with overflow detection.
-    /// 
-    /// This function safely computes the result of multiplying two U256 values
-    /// and dividing by a third, with special handling to prevent overflow during
-    /// the intermediate multiplication step.
+    if a.is_zero() || b.is_zero() {
+        return Ok(U256::zero());
+    }
+
+    let max_val = U256::max_value();
+    
+    if a > max_val / b {
+        let a_scaled = a / divisor;
+        let result = a_scaled.checked_mul(b)
+            .ok_or(MathError::Overflow)?;
+        return Ok(result);
+    }
+
+    let product = a * b;
+    Ok(product / divisor)
+}
+
+/// A fixed-point number with 18 decimal places of precision.
+///
+/// This type represents decimal numbers using integer arithmetic, scaled by 10^18.
+/// All arithmetic operations maintain the scale factor automatically.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// // Create 5.5
+/// let x = FixedPoint::from_fraction(5, 1, 2)?; // 5 + 1/2
+/// 
+/// // Create from float (testing only)
+/// let y = FixedPoint::from_f64(2.5)?;
+///
+/// // Arithmetic
+/// let sum = x.add(&y)?; // 8.0
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FixedPoint {
+    /// The raw U256 value, scaled by 10^18
+    pub value: U256,
+}
+
+impl FixedPoint {
+    /// Creates a fixed-point number from an unsigned 64-bit integer.
+    ///
+    /// The integer is automatically scaled by 10^18 to maintain precision.
     ///
     /// # Arguments
     ///
-    /// * `a` - First multiplicand
-    /// * `b` - Second multiplicand
-    /// * `divisor` - The divisor (must be non-zero)
-    ///
-    /// # Returns
-    ///
-    /// The result of (a * b) / divisor, or an error if overflow occurs or divisor is zero.
-    ///
-    /// # Errors
-    ///
-    /// * `MathError::DivisionByZero` - If divisor is zero
-    /// * `MathError::Overflow` - If the operation would overflow U256
-    fn mul_div_u256(a: U256, b: U256, divisor: U256) -> Result<U256> {
-        if divisor.is_zero() {
-            return err!(MathError::DivisionByZero);
-        }
-
-        if a.is_zero() || b.is_zero() {
-            return Ok(U256::zero());
-        }
-
-        let max_val = U256::max_value();
-        
-        if a > max_val / b {
-            let a_scaled = a / divisor;
-            let result = a_scaled.checked_mul(b)
-                .ok_or(MathError::Overflow)?;
-            return Ok(result);
-        }
-
-        let product = a * b;
-        Ok(product / divisor)
-    }
-
-    /// A fixed-point number with 18 decimal places of precision.
-    ///
-    /// This type represents decimal numbers using integer arithmetic, scaled by 10^18.
-    /// All arithmetic operations maintain the scale factor automatically.
+    /// * `n` - The integer value to convert
     ///
     /// # Examples
     ///
     /// ```rust,ignore
-    /// // Create 5.5
-    /// let x = FixedPoint::from_fraction(5, 1, 2)?; // 5 + 1/2
-    /// 
-    /// // Create from float (testing only)
-    /// let y = FixedPoint::from_f64(2.5)?;
-    ///
-    /// // Arithmetic
-    /// let sum = x.add(&y)?; // 8.0
+    /// let five = FixedPoint::from_int(5);
+    /// assert_eq!(five.to_u64()?, 5);
     /// ```
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct FixedPoint {
-        /// The raw U256 value, scaled by 10^18
-        pub value: U256,
+    pub fn from_int(n: u64) -> Self {
+        Self {
+            value: U256::from(n) * scale_u256(),
+        }
     }
 
-    impl FixedPoint {
-        /// Creates a fixed-point number from an unsigned 64-bit integer.
-        ///
-        /// The integer is automatically scaled by 10^18 to maintain precision.
-        ///
-        /// # Arguments
-        ///
-        /// * `n` - The integer value to convert
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// let five = FixedPoint::from_int(5);
-        /// assert_eq!(five.to_u64()?, 5);
-        /// ```
-        pub fn from_int(n: u64) -> Self {
-            Self {
-                value: U256::from(n) * scale_u256(),
-            }
+    /// Creates a fixed-point number from an unsigned 128-bit integer.
+    ///
+    /// Similar to `from_int`, but accepts larger values.
+    ///
+    /// # Arguments
+    ///
+    /// * `n` - The 128-bit integer value to convert
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let large = FixedPoint::from_u128(1_000_000_000);
+    /// ```
+    pub fn from_u128(n: u128) -> Self {
+        Self {
+            value: U256::from(n) * scale_u256(),
+        }
+    }
+
+    /// Creates a fixed-point number from a raw scaled U256 value.
+    ///
+    /// This function assumes the input is already scaled by 10^18.
+    /// Use this when you have a pre-scaled value.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The pre-scaled U256 value
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the value is properly scaled.
+    pub fn from_scaled(value: U256) -> Self {
+        Self { value }
+    }
+
+    /// Creates a fixed-point number from a raw scaled u128 value.
+    ///
+    /// This function assumes the input is already scaled by 10^18.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - The pre-scaled u128 value
+    pub fn from_scaled_u128(value: u128) -> Self {
+        Self {
+            value: U256::from(value),
+        }
+    }
+
+    /// Converts the fixed-point number to a u64 integer.
+    ///
+    /// This operation truncates any decimal places. For example,
+    /// 5.7 becomes 5, and 5.3 becomes 5.
+    ///
+    /// # Returns
+    ///
+    /// The integer part as u64, or an error if the value is too large.
+    ///
+    /// # Errors
+    ///
+    /// * `MathError::Overflow` - If the value exceeds u64::MAX
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let x = FixedPoint::from_fraction(5, 7, 10)?; // 5.7
+    /// assert_eq!(x.to_u64()?, 5);
+    /// ```
+    pub fn to_u64(&self) -> Result<u64> {
+        let int_part = self.value / scale_u256();
+        if int_part.0[1] != 0 || int_part.0[2] != 0 || int_part.0[3] != 0 {
+            return err!(MathError::Overflow);
+        }
+        Ok(int_part.0[0])
+    }
+
+    /// Converts the fixed-point number to a u128 integer.
+    ///
+    /// Truncates any decimal places, similar to `to_u64` but with larger range.
+    ///
+    /// # Returns
+    ///
+    /// The integer part as u128, or an error if the value is too large.
+    ///
+    /// # Errors
+    ///
+    /// * `MathError::Overflow` - If the value exceeds u128::MAX
+    pub fn to_u128(&self) -> Result<u128> {
+        let int_part = self.value / scale_u256();
+        if int_part.0[2] != 0 || int_part.0[3] != 0 {
+            return err!(MathError::Overflow);
+        }
+        Ok(int_part.0[0] as u128 | ((int_part.0[1] as u128) << 64))
+    }
+
+    /// Converts the fixed-point number to an f64 float.
+    ///
+    /// This is primarily intended for debugging and testing purposes.
+    /// Precision may be lost for very large or very precise numbers.
+    ///
+    /// # Returns
+    ///
+    /// The floating-point representation, or an error if overflow occurs.
+    ///
+    /// # Errors
+    ///
+    /// * `MathError::Overflow` - If the value is too large for f64 conversion
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let x = FixedPoint::from_int(5);
+    /// assert!((x.to_f64()? - 5.0).abs() < 1e-10);
+    /// ```
+    pub fn to_f64(&self) -> Result<f64> {
+        let value_u128 = if self.value.0[2] == 0 && self.value.0[3] == 0 {
+            self.value.0[0] as u128 | ((self.value.0[1] as u128) << 64)
+        } else {
+            return err!(MathError::Overflow);
+        };
+        
+        Ok((value_u128 as f64) / (SCALE as f64))
+    }
+
+    /// Creates a fixed-point number from an f64 float.
+    ///
+    /// This is intended for testing and convenience. For production code,
+    /// prefer using integer-based constructors for deterministic behavior.
+    ///
+    /// # Arguments
+    ///
+    /// * `val` - The floating-point value (must be non-negative and finite)
+    ///
+    /// # Returns
+    ///
+    /// A new FixedPoint, or an error if the input is invalid.
+    ///
+    /// # Errors
+    ///
+    /// * `MathError::InvalidInput` - If val is negative, infinite, or NaN
+    /// * `MathError::Overflow` - If val is too large to represent
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let x = FixedPoint::from_f64(3.14159)?;
+    /// ```
+    pub fn from_f64(val: f64) -> Result<Self> {
+        require!(val >= 0.0, MathError::InvalidInput);
+        require!(val.is_finite(), MathError::InvalidInput);
+        
+        let scaled = val * (SCALE as f64);
+        
+        if scaled > (u128::MAX as f64) {
+            return err!(MathError::Overflow);
+        }
+        
+        let scaled_u128 = scaled as u128;
+        Ok(Self::from_scaled_u128(scaled_u128))
+    }
+
+    /// Creates a fixed-point number from fractional components.
+    ///
+    /// Computes: whole + (numerator / denominator)
+    ///
+    /// # Arguments
+    ///
+    /// * `whole` - The integer part
+    /// * `numerator` - Numerator of the fractional part
+    /// * `denominator` - Denominator of the fractional part (must be non-zero)
+    ///
+    /// # Returns
+    ///
+    /// The resulting fixed-point number.
+    ///
+    /// # Errors
+    ///
+    /// * `MathError::DivisionByZero` - If denominator is zero
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// // Create 5.5 (5 + 1/2)
+    /// let x = FixedPoint::from_fraction(5, 1, 2)?;
+    /// ```
+    pub fn from_fraction(whole: u64, numerator: u64, denominator: u64) -> Result<Self> {
+        require!(denominator != 0, MathError::DivisionByZero);
+        let whole_part = U256::from(whole) * scale_u256();
+        let frac_part = (U256::from(numerator) * scale_u256()) / U256::from(denominator);
+        Ok(Self {
+            value: whole_part + frac_part,
+        })
+    }
+
+    /// Creates a fixed-point number from a simple ratio.
+    ///
+    /// Computes: numerator / denominator
+    ///
+    /// # Arguments
+    ///
+    /// * `numerator` - The numerator
+    /// * `denominator` - The denominator (must be non-zero)
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// // Create 0.5 (1/2)
+    /// let half = FixedPoint::from_ratio(1, 2)?;
+    /// ```
+    pub fn from_ratio(numerator: u64, denominator: u64) -> Result<Self> {
+        Self::from_fraction(0, numerator, denominator)
+    }
+
+    /// Creates a fixed-point number from basis points.
+    ///
+    /// Basis points are 1/100th of a percent. 1 bp = 0.01% = 0.0001
+    ///
+    /// # Arguments
+    ///
+    /// * `bps` - The number of basis points
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// // 250 bps = 2.5%
+    /// let rate = FixedPoint::from_bps(250)?;
+    /// ```
+    pub fn from_bps(bps: u64) -> Result<Self> {
+        Self::from_fraction(0, bps, 10_000)
+    }
+
+    /// Creates a fixed-point number from a percentage.
+    ///
+    /// # Arguments
+    ///
+    /// * `percent` - The percentage value (e.g., 25 for 25%)
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// // 25% = 0.25
+    /// let quarter = FixedPoint::from_percent(25)?;
+    /// ```
+    pub fn from_percent(percent: u64) -> Result<Self> {
+        Self::from_fraction(0, percent, 100)
+    }
+
+    /// Multiplies two fixed-point numbers.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The number to multiply by
+    ///
+    /// # Returns
+    ///
+    /// The product of the two numbers.
+    ///
+    /// # Errors
+    ///
+    /// * `MathError::Overflow` - If the result exceeds U256::MAX
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let x = FixedPoint::from_int(5);
+    /// let y = FixedPoint::from_int(3);
+    /// let product = x.mul(&y)?; // 15
+    /// ```
+    pub fn mul(&self, other: &Self) -> Result<Self> {
+        let result = mul_div_u256(self.value, other.value, scale_u256())?;
+        Ok(Self { value: result })
+    }
+
+    /// Divides one fixed-point number by another.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The divisor (must be non-zero)
+    ///
+    /// # Returns
+    ///
+    /// The quotient.
+    ///
+    /// # Errors
+    ///
+    /// * `MathError::DivisionByZero` - If other is zero
+    /// * `MathError::Overflow` - If the result exceeds U256::MAX
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let x = FixedPoint::from_int(10);
+    /// let y = FixedPoint::from_int(4);
+    /// let quotient = x.div(&y)?; // 2.5
+    /// ```
+    pub fn div(&self, other: &Self) -> Result<Self> {
+        require!(!other.value.is_zero(), MathError::DivisionByZero);
+        let result = mul_div_u256(self.value, scale_u256(), other.value)?;
+        Ok(Self { value: result })
+    }
+
+    /// Adds two fixed-point numbers.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The number to add
+    ///
+    /// # Returns
+    ///
+    /// The sum of the two numbers.
+    ///
+    /// # Errors
+    ///
+    /// * `MathError::Overflow` - If the sum exceeds U256::MAX
+    pub fn add(&self, other: &Self) -> Result<Self> {
+        let result = self.value.checked_add(other.value)
+            .ok_or(error!(MathError::Overflow))?;
+        Ok(Self { value: result })
+    }
+
+    /// Subtracts one fixed-point number from another.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The number to subtract
+    ///
+    /// # Returns
+    ///
+    /// The difference.
+    ///
+    /// # Errors
+    ///
+    /// * `MathError::Underflow` - If other is larger than self
+    pub fn sub(&self, other: &Self) -> Result<Self> {
+        let result = self.value.checked_sub(other.value)
+            .ok_or(error!(MathError::Underflow))?;
+        Ok(Self { value: result })
+    }
+
+    /// Optimized power function for base 2 with fractional exponents.
+    ///
+    /// Computes 2^exponent using range reduction and Taylor series.
+    /// This is more efficient than the general power function.
+    ///
+    /// # Arguments
+    ///
+    /// * `exponent` - The exponent (can be fractional)
+    ///
+    /// # Returns
+    ///
+    /// 2 raised to the given power.
+    ///
+    /// # Errors
+    ///
+    /// * `MathError::Overflow` - If the result is too large
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let exp = FixedPoint::from_int(3);
+    /// let result = FixedPoint::pow2_fast(&exp)?; // 2^3 = 8
+    /// ```
+    pub fn pow2_fast(exponent: &Self) -> Result<Self> {
+        let scale = scale_u256();
+        
+        if exponent.value.is_zero() {
+            return Ok(Self::from_int(1));
         }
 
-        /// Creates a fixed-point number from an unsigned 128-bit integer.
-        ///
-        /// Similar to `from_int`, but accepts larger values.
-        ///
-        /// # Arguments
-        ///
-        /// * `n` - The 128-bit integer value to convert
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// let large = FixedPoint::from_u128(1_000_000_000);
-        /// ```
-        pub fn from_u128(n: u128) -> Self {
-            Self {
-                value: U256::from(n) * scale_u256(),
-            }
-        }
+        let int_part = (exponent.value / scale).low_u64() as i64;
+        let frac_part = exponent.value % scale;
 
-        /// Creates a fixed-point number from a raw scaled U256 value.
-        ///
-        /// This function assumes the input is already scaled by 10^18.
-        /// Use this when you have a pre-scaled value.
-        ///
-        /// # Arguments
-        ///
-        /// * `value` - The pre-scaled U256 value
-        ///
-        /// # Safety
-        ///
-        /// The caller must ensure the value is properly scaled.
-        pub fn from_scaled(value: U256) -> Self {
-            Self { value }
-        }
-
-        /// Creates a fixed-point number from a raw scaled u128 value.
-        ///
-        /// This function assumes the input is already scaled by 10^18.
-        ///
-        /// # Arguments
-        ///
-        /// * `value` - The pre-scaled u128 value
-        pub fn from_scaled_u128(value: u128) -> Self {
-            Self {
-                value: U256::from(value),
-            }
-        }
-
-        /// Converts the fixed-point number to a u64 integer.
-        ///
-        /// This operation truncates any decimal places. For example,
-        /// 5.7 becomes 5, and 5.3 becomes 5.
-        ///
-        /// # Returns
-        ///
-        /// The integer part as u64, or an error if the value is too large.
-        ///
-        /// # Errors
-        ///
-        /// * `MathError::Overflow` - If the value exceeds u64::MAX
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// let x = FixedPoint::from_fraction(5, 7, 10)?; // 5.7
-        /// assert_eq!(x.to_u64()?, 5);
-        /// ```
-        pub fn to_u64(&self) -> Result<u64> {
-            let int_part = self.value / scale_u256();
-            if int_part.0[1] != 0 || int_part.0[2] != 0 || int_part.0[3] != 0 {
-                return err!(MathError::Overflow);
-            }
-            Ok(int_part.0[0])
-        }
-
-        /// Converts the fixed-point number to a u128 integer.
-        ///
-        /// Truncates any decimal places, similar to `to_u64` but with larger range.
-        ///
-        /// # Returns
-        ///
-        /// The integer part as u128, or an error if the value is too large.
-        ///
-        /// # Errors
-        ///
-        /// * `MathError::Overflow` - If the value exceeds u128::MAX
-        pub fn to_u128(&self) -> Result<u128> {
-            let int_part = self.value / scale_u256();
-            if int_part.0[2] != 0 || int_part.0[3] != 0 {
-                return err!(MathError::Overflow);
-            }
-            Ok(int_part.0[0] as u128 | ((int_part.0[1] as u128) << 64))
-        }
-
-        /// Converts the fixed-point number to an f64 float.
-        ///
-        /// This is primarily intended for debugging and testing purposes.
-        /// Precision may be lost for very large or very precise numbers.
-        ///
-        /// # Returns
-        ///
-        /// The floating-point representation, or an error if overflow occurs.
-        ///
-        /// # Errors
-        ///
-        /// * `MathError::Overflow` - If the value is too large for f64 conversion
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// let x = FixedPoint::from_int(5);
-        /// assert!((x.to_f64()? - 5.0).abs() < 1e-10);
-        /// ```
-        pub fn to_f64(&self) -> Result<f64> {
-            let value_u128 = if self.value.0[2] == 0 && self.value.0[3] == 0 {
-                self.value.0[0] as u128 | ((self.value.0[1] as u128) << 64)
+        if frac_part.is_zero() {
+            if int_part >= 0 {
+                let result = U256::from(1u64) << (int_part as usize);
+                return Ok(Self::from_scaled(result * scale));
             } else {
-                return err!(MathError::Overflow);
-            };
-            
-            Ok((value_u128 as f64) / (SCALE as f64))
+                let divisor = U256::from(1u64) << ((-int_part) as usize);
+                return Ok(Self::from_scaled(scale / divisor));
+            }
         }
 
-        /// Creates a fixed-point number from an f64 float.
-        ///
-        /// This is intended for testing and convenience. For production code,
-        /// prefer using integer-based constructors for deterministic behavior.
-        ///
-        /// # Arguments
-        ///
-        /// * `val` - The floating-point value (must be non-negative and finite)
-        ///
-        /// # Returns
-        ///
-        /// A new FixedPoint, or an error if the input is invalid.
-        ///
-        /// # Errors
-        ///
-        /// * `MathError::InvalidInput` - If val is negative, infinite, or NaN
-        /// * `MathError::Overflow` - If val is too large to represent
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// let x = FixedPoint::from_f64(3.14159)?;
-        /// ```
-        pub fn from_f64(val: f64) -> Result<Self> {
-            require!(val >= 0.0, MathError::InvalidInput);
-            require!(val.is_finite(), MathError::InvalidInput);
-            
-            let scaled = val * (SCALE as f64);
-            
-            if scaled > (u128::MAX as f64) {
-                return err!(MathError::Overflow);
-            }
-            
-            let scaled_u128 = scaled as u128;
-            Ok(Self::from_scaled_u128(scaled_u128))
+        let mut result = scale;
+        if int_part > 0 {
+            result = result << (int_part as usize);
+        } else if int_part < 0 {
+            result = result >> ((-int_part) as usize);
         }
 
-        /// Creates a fixed-point number from fractional components.
-        ///
-        /// Computes: whole + (numerator / denominator)
-        ///
-        /// # Arguments
-        ///
-        /// * `whole` - The integer part
-        /// * `numerator` - Numerator of the fractional part
-        /// * `denominator` - Denominator of the fractional part (must be non-zero)
-        ///
-        /// # Returns
-        ///
-        /// The resulting fixed-point number.
-        ///
-        /// # Errors
-        ///
-        /// * `MathError::DivisionByZero` - If denominator is zero
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// // Create 5.5 (5 + 1/2)
-        /// let x = FixedPoint::from_fraction(5, 1, 2)?;
-        /// ```
-        pub fn from_fraction(whole: u64, numerator: u64, denominator: u64) -> Result<Self> {
-            require!(denominator != 0, MathError::DivisionByZero);
-            let whole_part = U256::from(whole) * scale_u256();
-            let frac_part = (U256::from(numerator) * scale_u256()) / U256::from(denominator);
-            Ok(Self {
-                value: whole_part + frac_part,
-            })
+        let ln2 = U256::from(693_147_180_559_945_309u128);
+        let x_ln2 = mul_div_u256(frac_part, ln2, scale)?;
+        
+        let term1 = scale;
+        let term2 = x_ln2;
+        let term3 = mul_div_u256(x_ln2, x_ln2, scale)? / U256::from(2u64);
+        let term4 = mul_div_u256(mul_div_u256(x_ln2, x_ln2, scale)?, x_ln2, scale)? / U256::from(6u64);
+        
+        let frac_result = term1 + term2 + term3 + term4;
+        let final_val = mul_div_u256(result, frac_result, scale)?;
+        
+        Ok(Self::from_scaled(final_val))
+    }
+
+    /// Fast power for small integer bases (2-10).
+    ///
+    /// Uses pre-computed logarithms for efficiency.
+    fn pow_small_base(&self, exponent: &Self) -> Result<Self> {
+        let base_int = self.to_u64()?;
+        
+        if base_int == 2 {
+            return Self::pow2_fast(exponent);
         }
 
-        /// Creates a fixed-point number from a simple ratio.
-        ///
-        /// Computes: numerator / denominator
-        ///
-        /// # Arguments
-        ///
-        /// * `numerator` - The numerator
-        /// * `denominator` - The denominator (must be non-zero)
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// // Create 0.5 (1/2)
-        /// let half = FixedPoint::from_ratio(1, 2)?;
-        /// ```
-        pub fn from_ratio(numerator: u64, denominator: u64) -> Result<Self> {
-            Self::from_fraction(0, numerator, denominator)
+        let log2_lookup: [(u64, u128); 9] = [
+            (2, 1_000_000_000_000_000_000),
+            (3, 1_584_962_500_721_156_181),
+            (4, 2_000_000_000_000_000_000),
+            (5, 2_321_928_094_887_362_347),
+            (6, 2_584_962_500_721_156_181),
+            (7, 2_807_354_922_057_604_107),
+            (8, 3_000_000_000_000_000_000),
+            (9, 3_169_925_001_442_312_363),
+            (10, 3_321_928_094_887_362_347),
+        ];
+
+        let mut log2_base = U256::zero();
+        for (base, log2_val) in log2_lookup.iter() {
+            if *base == base_int {
+                log2_base = U256::from(*log2_val);
+                break;
+            }
         }
 
-        /// Creates a fixed-point number from basis points.
-        ///
-        /// Basis points are 1/100th of a percent. 1 bp = 0.01% = 0.0001
-        ///
-        /// # Arguments
-        ///
-        /// * `bps` - The number of basis points
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// // 250 bps = 2.5%
-        /// let rate = FixedPoint::from_bps(250)?;
-        /// ```
-        pub fn from_bps(bps: u64) -> Result<Self> {
-            Self::from_fraction(0, bps, 10_000)
+        if log2_base.is_zero() {
+            return self.pow_general(exponent);
         }
 
-        /// Creates a fixed-point number from a percentage.
-        ///
-        /// # Arguments
-        ///
-        /// * `percent` - The percentage value (e.g., 25 for 25%)
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// // 25% = 0.25
-        /// let quarter = FixedPoint::from_percent(25)?;
-        /// ```
-        pub fn from_percent(percent: u64) -> Result<Self> {
-            Self::from_fraction(0, percent, 100)
+        let scaled_exp = mul_div_u256(exponent.value, log2_base, scale_u256())?;
+        let scaled_exp_fp = Self::from_scaled(scaled_exp);
+        
+        Self::pow2_fast(&scaled_exp_fp)
+    }
+
+    /// General power function using logarithms.
+    ///
+    /// Computes base^exponent using the identity: base^exp = e^(exp * ln(base))
+    fn pow_general(&self, exponent: &Self) -> Result<Self> {
+        require!(!self.value.is_zero(), MathError::InvalidInput);
+
+        let scale = scale_u256();
+        
+        if exponent.value.is_zero() {
+            return Ok(Self::from_int(1));
+        }
+        if exponent.value == scale {
+            return Ok(*self);
+        }
+        if self.value == scale {
+            return Ok(*self);
         }
 
-        /// Multiplies two fixed-point numbers.
-        ///
-        /// # Arguments
-        ///
-        /// * `other` - The number to multiply by
-        ///
-        /// # Returns
-        ///
-        /// The product of the two numbers.
-        ///
-        /// # Errors
-        ///
-        /// * `MathError::Overflow` - If the result exceeds U256::MAX
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// let x = FixedPoint::from_int(5);
-        /// let y = FixedPoint::from_int(3);
-        /// let product = x.mul(&y)?; // 15
-        /// ```
-        pub fn mul(&self, other: &Self) -> Result<Self> {
-            let result = mul_div_u256(self.value, other.value, scale_u256())?;
-            Ok(Self { value: result })
+        let remainder = exponent.value % scale;
+        if remainder.is_zero() {
+            let exp_int = (exponent.value / scale).low_u32();
+            return self.pow_int(exp_int);
         }
 
-        /// Divides one fixed-point number by another.
-        ///
-        /// # Arguments
-        ///
-        /// * `other` - The divisor (must be non-zero)
-        ///
-        /// # Returns
-        ///
-        /// The quotient.
-        ///
-        /// # Errors
-        ///
-        /// * `MathError::DivisionByZero` - If other is zero
-        /// * `MathError::Overflow` - If the result exceeds U256::MAX
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// let x = FixedPoint::from_int(10);
-        /// let y = FixedPoint::from_int(4);
-        /// let quotient = x.div(&y)?; // 2.5
-        /// ```
-        pub fn div(&self, other: &Self) -> Result<Self> {
-            require!(!other.value.is_zero(), MathError::DivisionByZero);
-            let result = mul_div_u256(self.value, scale_u256(), other.value)?;
-            Ok(Self { value: result })
+        let ln_self = self.ln_fast()?;
+        let exp_times_ln = ln_self.mul(exponent)?;
+        exp_times_ln.exp_fast()
+    }
+
+    /// Raises this number to the given power.
+    ///
+    /// Supports both integer and fractional exponents.
+    /// Uses optimized algorithms based on the base and exponent values.
+    ///
+    /// # Arguments
+    ///
+    /// * `exponent` - The power to raise to (can be fractional)
+    ///
+    /// # Returns
+    ///
+    /// self^exponent
+    ///
+    /// # Errors
+    ///
+    /// * `MathError::InvalidInput` - If self is zero and exponent is non-positive
+    /// * `MathError::Overflow` - If the result is too large
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let base = FixedPoint::from_int(5);
+    /// let exp = FixedPoint::from_int(2);
+    /// let result = base.pow(&exp)?; // 25
+    ///
+    /// // Fractional exponent (square root)
+    /// let half = FixedPoint::from_ratio(1, 2)?;
+    /// let sqrt_25 = FixedPoint::from_int(25).pow(&half)?; // 5
+    /// ```
+    pub fn pow(&self, exponent: &Self) -> Result<Self> {
+        if let Ok(base_val) = self.to_u64() {
+            if base_val >= 2 && base_val <= 10 {
+                return self.pow_small_base(exponent);
+            }
         }
 
-        /// Adds two fixed-point numbers.
-        ///
-        /// # Arguments
-        ///
-        /// * `other` - The number to add
-        ///
-        /// # Returns
-        ///
-        /// The sum of the two numbers.
-        ///
-        /// # Errors
-        ///
-        /// * `MathError::Overflow` - If the sum exceeds U256::MAX
-        pub fn add(&self, other: &Self) -> Result<Self> {
-            let result = self.value.checked_add(other.value)
-                .ok_or(error!(MathError::Overflow))?;
-            Ok(Self { value: result })
+        let scale = scale_u256();
+        let remainder = exponent.value % scale;
+        if remainder.is_zero() {
+            let exp_int = (exponent.value / scale).low_u32();
+            return self.pow_int(exp_int);
         }
 
-        /// Subtracts one fixed-point number from another.
-        ///
-        /// # Arguments
-        ///
-        /// * `other` - The number to subtract
-        ///
-        /// # Returns
-        ///
-        /// The difference.
-        ///
-        /// # Errors
-        ///
-        /// * `MathError::Underflow` - If other is larger than self
-        pub fn sub(&self, other: &Self) -> Result<Self> {
-            let result = self.value.checked_sub(other.value)
-                .ok_or(error!(MathError::Underflow))?;
-            Ok(Self { value: result })
+        self.pow_general(exponent)
+    }
+
+    /// Efficient integer power using binary exponentiation.
+    ///
+    /// Computes self^exp in O(log exp) multiplications.
+    fn pow_int(&self, mut exp: u32) -> Result<Self> {
+        if exp == 0 {
+            return Ok(Self::from_int(1));
+        }
+        if exp == 1 {
+            return Ok(*self);
         }
 
-        /// Optimized power function for base 2 with fractional exponents.
-        ///
-        /// Computes 2^exponent using range reduction and Taylor series.
-        /// This is more efficient than the general power function.
-        ///
-        /// # Arguments
-        ///
-        /// * `exponent` - The exponent (can be fractional)
-        ///
-        /// # Returns
-        ///
-        /// 2 raised to the given power.
-        ///
-        /// # Errors
-        ///
-        /// * `MathError::Overflow` - If the result is too large
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// let exp = FixedPoint::from_int(3);
-        /// let result = FixedPoint::pow2_fast(&exp)?; // 2^3 = 8
-        /// ```
-        pub fn pow2_fast(exponent: &Self) -> Result<Self> {
-            let scale = scale_u256();
-            
-            if exponent.value.is_zero() {
-                return Ok(Self::from_int(1));
+        let mut base = *self;
+        let mut result = Self::from_int(1);
+
+        while exp > 0 {
+            if exp & 1 == 1 {
+                result = result.mul(&base)?;
             }
-
-            let int_part = (exponent.value / scale).low_u64() as i64;
-            let frac_part = exponent.value % scale;
-
-            if frac_part.is_zero() {
-                if int_part >= 0 {
-                    let result = U256::from(1u64) << (int_part as usize);
-                    return Ok(Self::from_scaled(result * scale));
-                } else {
-                    let divisor = U256::from(1u64) << ((-int_part) as usize);
-                    return Ok(Self::from_scaled(scale / divisor));
-                }
+            if exp > 1 {
+                base = base.mul(&base)?;
             }
-
-            let mut result = scale;
-            if int_part > 0 {
-                result = result << (int_part as usize);
-            } else if int_part < 0 {
-                result = result >> ((-int_part) as usize);
-            }
-
-            let ln2 = U256::from(693_147_180_559_945_309u128);
-            let x_ln2 = mul_div_u256(frac_part, ln2, scale)?;
-            
-            let term1 = scale;
-            let term2 = x_ln2;
-            let term3 = mul_div_u256(x_ln2, x_ln2, scale)? / U256::from(2u64);
-            let term4 = mul_div_u256(mul_div_u256(x_ln2, x_ln2, scale)?, x_ln2, scale)? / U256::from(6u64);
-            
-            let frac_result = term1 + term2 + term3 + term4;
-            let final_val = mul_div_u256(result, frac_result, scale)?;
-            
-            Ok(Self::from_scaled(final_val))
+            exp >>= 1;
         }
 
-        /// Fast power for small integer bases (2-10).
-        ///
-        /// Uses pre-computed logarithms for efficiency.
-        fn pow_small_base(&self, exponent: &Self) -> Result<Self> {
-            let base_int = self.to_u64()?;
-            
-            if base_int == 2 {
-                return Self::pow2_fast(exponent);
-            }
+        Ok(result)
+    }
 
-            let log2_lookup: [(u64, u128); 9] = [
-                (2, 1_000_000_000_000_000_000),
-                (3, 1_584_962_500_721_156_181),
-                (4, 2_000_000_000_000_000_000),
-                (5, 2_321_928_094_887_362_347),
-                (6, 2_584_962_500_721_156_181),
-                (7, 2_807_354_922_057_604_107),
-                (8, 3_000_000_000_000_000_000),
-                (9, 3_169_925_001_442_312_363),
-                (10, 3_321_928_094_887_362_347),
-            ];
+    /// Computes the natural logarithm (ln).
+    ///
+    /// # Returns
+    ///
+    /// ln(self)
+    ///
+    /// # Errors
+    ///
+    /// * `MathError::InvalidInput` - If self is zero or negative
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let e = FixedPoint::from_f64(2.718281828)?;
+    /// let ln_e = e.ln()?; // ≈ 1.0
+    /// ```
+    pub fn ln(&self) -> Result<Self> {
+        self.ln_fast()
+    }
 
-            let mut log2_base = U256::zero();
-            for (base, log2_val) in log2_lookup.iter() {
-                if *base == base_int {
-                    log2_base = U256::from(*log2_val);
-                    break;
-                }
-            }
+    /// Fast ln implementation with improved accuracy.
+    ///
+    /// Uses range reduction to bring the input into [1, 2), then applies
+    /// a Taylor series approximation.
+    fn ln_fast(&self) -> Result<Self> {
+        require!(!self.value.is_zero(), MathError::InvalidInput);
 
-            if log2_base.is_zero() {
-                return self.pow_general(exponent);
-            }
-
-            let scaled_exp = mul_div_u256(exponent.value, log2_base, scale_u256())?;
-            let scaled_exp_fp = Self::from_scaled(scaled_exp);
-            
-            Self::pow2_fast(&scaled_exp_fp)
+        let scale = scale_u256();
+        if self.value == scale {
+            return Ok(Self::from_scaled(U256::zero()));
         }
 
-        /// General power function using logarithms.
-        ///
-        /// Computes base^exponent using the identity: base^exp = e^(exp * ln(base))
-        fn pow_general(&self, exponent: &Self) -> Result<Self> {
-            require!(!self.value.is_zero(), MathError::InvalidInput);
+        let mut x = self.value;
+        let mut exp_adj: i64 = 0;
+        let two = U256::from(2u64);
 
-            let scale = scale_u256();
-            
-            if exponent.value.is_zero() {
-                return Ok(Self::from_int(1));
-            }
-            if exponent.value == scale {
-                return Ok(*self);
-            }
-            if self.value == scale {
-                return Ok(*self);
-            }
-
-            let remainder = exponent.value % scale;
-            if remainder.is_zero() {
-                let exp_int = (exponent.value / scale).low_u32();
-                return self.pow_int(exp_int);
-            }
-
-            let ln_self = self.ln_fast()?;
-            let exp_times_ln = ln_self.mul(exponent)?;
-            exp_times_ln.exp_fast()
+        while x >= two * scale {
+            x = x / two;
+            exp_adj += 1;
+        }
+        while x < scale {
+            x = x * two;
+            exp_adj -= 1;
         }
 
-        /// Raises this number to the given power.
-        ///
-        /// Supports both integer and fractional exponents.
-        /// Uses optimized algorithms based on the base and exponent values.
-        ///
-        /// # Arguments
-        ///
-        /// * `exponent` - The power to raise to (can be fractional)
-        ///
-        /// # Returns
-        ///
-        /// self^exponent
-        ///
-        /// # Errors
-        ///
-        /// * `MathError::InvalidInput` - If self is zero and exponent is non-positive
-        /// * `MathError::Overflow` - If the result is too large
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// let base = FixedPoint::from_int(5);
-        /// let exp = FixedPoint::from_int(2);
-        /// let result = base.pow(&exp)?; // 25
-        ///
-        /// // Fractional exponent (square root)
-        /// let half = FixedPoint::from_ratio(1, 2)?;
-        /// let sqrt_25 = FixedPoint::from_int(25).pow(&half)?; // 5
-        /// ```
-        pub fn pow(&self, exponent: &Self) -> Result<Self> {
-            if let Ok(base_val) = self.to_u64() {
-                if base_val >= 2 && base_val <= 10 {
-                    return self.pow_small_base(exponent);
-                }
-            }
+        let num = x.checked_sub(scale).ok_or(error!(MathError::Underflow))?;
+        let den = x.checked_add(scale).ok_or(error!(MathError::Overflow))?;
+        let y = mul_div_u256(num, scale, den)?;
 
-            let scale = scale_u256();
-            let remainder = exponent.value % scale;
-            if remainder.is_zero() {
-                let exp_int = (exponent.value / scale).low_u32();
-                return self.pow_int(exp_int);
-            }
+        let y2 = mul_div_u256(y, y, scale)?;
 
-            self.pow_general(exponent)
+        let denoms = [1u64, 3, 5, 7, 9];
+        let mut inner_sum = U256::zero();
+        let mut current_power = scale;
+
+        for i in 0..denoms.len() {
+            let denom = U256::from(denoms[i]);
+            let term = (current_power + (denom / two)) / denom;
+            inner_sum = inner_sum.checked_add(term).ok_or(error!(MathError::Overflow))?;
+
+            if i < denoms.len() - 1 {
+                current_power = mul_div_u256(current_power, y2, scale)?;
+            }
         }
 
-        /// Efficient integer power using binary exponentiation.
-        ///
-        /// Computes self^exp in O(log exp) multiplications.
-        fn pow_int(&self, mut exp: u32) -> Result<Self> {
-            if exp == 0 {
-                return Ok(Self::from_int(1));
-            }
-            if exp == 1 {
-                return Ok(*self);
-            }
+        let two_y = y.checked_mul(two).ok_or(error!(MathError::Overflow))?;
+        let ln_x = mul_div_u256(inner_sum, two_y, scale)?;
 
-            let mut base = *self;
-            let mut result = Self::from_int(1);
+        let abs_exp = exp_adj.abs() as u64;
+        let adj_abs = LN_2.checked_mul(U256::from(abs_exp)).ok_or(error!(MathError::Overflow))?;
 
-            while exp > 0 {
-                if exp & 1 == 1 {
-                    result = result.mul(&base)?;
-                }
-                if exp > 1 {
-                    base = base.mul(&base)?;
-                }
-                exp >>= 1;
-            }
+        let final_value = if exp_adj >= 0 {
+            ln_x.checked_add(adj_abs).ok_or(error!(MathError::Overflow))?
+        } else {
+            ln_x.checked_sub(adj_abs).ok_or(error!(MathError::Underflow))?
+        };
 
-            Ok(result)
+        Ok(Self::from_scaled(final_value))
+    }
+
+    /// Computes the exponential function (e^x).
+    ///
+    /// # Returns
+    ///
+    /// e^self
+    ///
+    /// # Errors
+    ///
+    /// * `MathError::Overflow` - If self is too large
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let x = FixedPoint::from_int(1);
+    /// let e = x.exp()?; // ≈ 2.718281828
+    /// ```
+    pub fn exp(&self) -> Result<Self> {
+        self.exp_fast()
+    }
+
+    /// Fast exp implementation with range reduction.
+    ///
+    /// Uses the identity: e^x = 2^(x/ln(2)) * e^r where r is small.
+    fn exp_fast(&self) -> Result<Self> {
+        require!(self.value <= MAX_EXP_INPUT, MathError::Overflow);
+
+        let scale = scale_u256();
+        if self.value.is_zero() {
+            return Ok(Self::from_int(1));
         }
 
-        /// Computes the natural logarithm (ln).
-        ///
-        /// # Returns
-        ///
-        /// ln(self)
-        ///
-        /// # Errors
-        ///
-        /// * `MathError::InvalidInput` - If self is zero or negative
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// let e = FixedPoint::from_f64(2.718281828)?;
-        /// let ln_e = e.ln()?; // ≈ 1.0
-        /// ```
-        pub fn ln(&self) -> Result<Self> {
-            self.ln_fast()
+        let x = self.value;
+        let ln_2 = LN_2;
+
+        // FIX: Both x and ln_2 are scaled, so simple division gives unscaled k
+        let k_u256 = x / ln_2;
+        let k = if k_u256.0[1] == 0 && k_u256.0[2] == 0 && k_u256.0[3] == 0 {
+            k_u256.0[0] as i64
+        } else {
+            return err!(MathError::Overflow);
+        };
+        
+        let k_abs = U256::from(k.abs() as u64);
+        let k_ln2 = k_abs * ln_2;  // k is unscaled, ln_2 is scaled, so k_ln2 is scaled
+        
+        let r = if k >= 0 {
+            x.checked_sub(k_ln2).unwrap_or(U256::zero())
+        } else {
+            x.checked_add(k_ln2).ok_or(error!(MathError::Overflow))?
+        };
+
+        let r2 = mul_div_u256(r, r, scale)?;
+        let r3 = mul_div_u256(r2, r, scale)?;
+        
+        let result = scale + r + r2 / U256::from(2u64) + r3 / U256::from(6u64);
+
+        let mut final_result = result;
+        
+        if k > 0 {
+            final_result = final_result << (k as usize);
+        } else if k < 0 {
+            final_result = final_result >> ((-k) as usize);
         }
 
-        /// Fast ln implementation with improved accuracy.
-        ///
-        /// Uses range reduction to bring the input into [1, 2), then applies
-        /// a Taylor series approximation.
-        fn ln_fast(&self) -> Result<Self> {
-            require!(!self.value.is_zero(), MathError::InvalidInput);
+        Ok(Self::from_scaled(final_result))
+    }
 
-            let scale = scale_u256();
-            if self.value == scale {
-                return Ok(Self::from_scaled(U256::zero()));
-            }
-
-            let mut x = self.value;
-            let mut exp_adj: i64 = 0;
-            let two = U256::from(2u64);
-
-            while x >= two * scale {
-                x = x / two;
-                exp_adj += 1;
-            }
-            while x < scale {
-                x = x * two;
-                exp_adj -= 1;
-            }
-
-            let num = x.checked_sub(scale).ok_or(error!(MathError::Underflow))?;
-            let den = x.checked_add(scale).ok_or(error!(MathError::Overflow))?;
-            let y = mul_div_u256(num, scale, den)?;
-
-            let y2 = mul_div_u256(y, y, scale)?;
-
-            let denoms = [1u64, 3, 5, 7, 9];
-            let mut inner_sum = U256::zero();
-            let mut current_power = scale;
-
-            for i in 0..denoms.len() {
-                let denom = U256::from(denoms[i]);
-                let term = (current_power + (denom / two)) / denom;
-                inner_sum = inner_sum.checked_add(term).ok_or(error!(MathError::Overflow))?;
-
-                if i < denoms.len() - 1 {
-                    current_power = mul_div_u256(current_power, y2, scale)?;
-                }
-            }
-
-            let two_y = y.checked_mul(two).ok_or(error!(MathError::Overflow))?;
-            let ln_x = mul_div_u256(inner_sum, two_y, scale)?;
-
-            let abs_exp = exp_adj.abs() as u64;
-            let adj_abs = LN_2.checked_mul(U256::from(abs_exp)).ok_or(error!(MathError::Overflow))?;
-
-            let final_value = if exp_adj >= 0 {
-                ln_x.checked_add(adj_abs).ok_or(error!(MathError::Overflow))?
-            } else {
-                ln_x.checked_sub(adj_abs).ok_or(error!(MathError::Underflow))?
-            };
-
-            Ok(Self::from_scaled(final_value))
+    /// Computes the square root using Newton's method.
+    ///
+    /// # Returns
+    ///
+    /// √self
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let x = FixedPoint::from_int(25);
+    /// let sqrt = x.sqrt()?; // 5
+    /// ```
+    pub fn sqrt(&self) -> Result<Self> {
+        if self.value.is_zero() {
+            return Ok(Self::from_scaled(U256::zero()));
         }
 
-        /// Computes the exponential function (e^x).
-        ///
-        /// # Returns
-        ///
-        /// e^self
-        ///
-        /// # Errors
-        ///
-        /// * `MathError::Overflow` - If self is too large
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// let x = FixedPoint::from_int(1);
-        /// let e = x.exp()?; // ≈ 2.718281828
-        /// ```
-        pub fn exp(&self) -> Result<Self> {
-            self.exp_fast()
-        }
+        let scale = scale_u256();
+        let x = self.value;
+        let mut y = (x + scale) / U256::from(2u64);
 
-        /// Fast exp implementation with range reduction.
-        ///
-        /// Uses the identity: e^x = 2^(x/ln(2)) * e^r where r is small.
-        fn exp_fast(&self) -> Result<Self> {
-            require!(self.value <= MAX_EXP_INPUT, MathError::Overflow);
+        y = (y + mul_div_u256(x, scale, y)?) / U256::from(2u64);
+        y = (y + mul_div_u256(x, scale, y)?) / U256::from(2u64);
+        y = (y + mul_div_u256(x, scale, y)?) / U256::from(2u64);
+        y = (y + mul_div_u256(x, scale, y)?) / U256::from(2u64);
 
-            let scale = scale_u256();
-            if self.value.is_zero() {
-                return Ok(Self::from_int(1));
-            }
+        Ok(Self::from_scaled(y))
+    }
 
-            let x = self.value;
-            let ln_2 = LN_2;
+    /// Computes the base-10 logarithm.
+    ///
+    /// Uses the identity: log10(x) = ln(x) / ln(10)
+    ///
+    /// # Returns
+    ///
+    /// log₁₀(self)
+    ///
+    /// # Errors
+    ///
+    /// * `MathError::InvalidInput` - If self is zero
+    pub fn log10(&self) -> Result<Self> {
+        let ln_val = self.ln_fast()?;
+        let ln_10 = Self::from_scaled(LN_10);
+        ln_val.div(&ln_10)
+    }
 
-            // FIX: Both x and ln_2 are scaled, so simple division gives unscaled k
-            let k_u256 = x / ln_2;
-            let k = if k_u256.0[1] == 0 && k_u256.0[2] == 0 && k_u256.0[3] == 0 {
-                k_u256.0[0] as i64
-            } else {
-                return err!(MathError::Overflow);
-            };
-            
-            let k_abs = U256::from(k.abs() as u64);
-            let k_ln2 = k_abs * ln_2;  // k is unscaled, ln_2 is scaled, so k_ln2 is scaled
-            
-            let r = if k >= 0 {
-                x.checked_sub(k_ln2).unwrap_or(U256::zero())
-            } else {
-                x.checked_add(k_ln2).ok_or(error!(MathError::Overflow))?
-            };
+    /// Computes the base-2 logarithm.
+    ///
+    /// Uses the identity: log2(x) = ln(x) / ln(2)
+    ///
+    /// # Returns
+    ///
+    /// log₂(self)
+    ///
+    /// # Errors
+    ///
+    /// * `MathError::InvalidInput` - If self is zero
+    pub fn log2(&self) -> Result<Self> {
+        let ln_val = self.ln_fast()?;
+        let ln_2 = Self::from_scaled(LN_2);
+        ln_val.div(&ln_2)
+    }
 
-            let r2 = mul_div_u256(r, r, scale)?;
-            let r3 = mul_div_u256(r2, r, scale)?;
-            
-            let result = scale + r + r2 / U256::from(2u64) + r3 / U256::from(6u64);
+    /// Computes the logarithm with a custom base.
+    ///
+    /// Uses the identity: log_base(x) = ln(x) / ln(base)
+    ///
+    /// # Arguments
+    ///
+    /// * `base` - The logarithm base
+    ///
+    /// # Returns
+    ///
+    /// log_base(self)
+    ///
+    /// # Errors
+    ///
+    /// * `MathError::InvalidInput` - If self or base is zero or base is 1
+    pub fn log(&self, base: &Self) -> Result<Self> {
+        let ln_val = self.ln_fast()?;
+        let ln_base = base.ln_fast()?;
+        ln_val.div(&ln_base)
+    }
 
-            let mut final_result = result;
-            
-            if k > 0 {
-                final_result = final_result << (k as usize);
-            } else if k < 0 {
-                final_result = final_result >> ((-k) as usize);
-            }
+    /// Returns the absolute value.
+    ///
+    /// For unsigned fixed-point numbers, this is always the identity function.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let x = FixedPoint::from_int(5);
+    /// assert_eq!(x.abs(), x);
+    /// ```
+    pub fn abs(&self) -> Self {
+        *self
+    }
 
-            Ok(Self::from_scaled(final_result))
-        }
-
-        /// Computes the square root using Newton's method.
-        ///
-        /// # Returns
-        ///
-        /// √self
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// let x = FixedPoint::from_int(25);
-        /// let sqrt = x.sqrt()?; // 5
-        /// ```
-        pub fn sqrt(&self) -> Result<Self> {
-            if self.value.is_zero() {
-                return Ok(Self::from_scaled(U256::zero()));
-            }
-
-            let scale = scale_u256();
-            let x = self.value;
-            let mut y = (x + scale) / U256::from(2u64);
-
-            y = (y + mul_div_u256(x, scale, y)?) / U256::from(2u64);
-            y = (y + mul_div_u256(x, scale, y)?) / U256::from(2u64);
-            y = (y + mul_div_u256(x, scale, y)?) / U256::from(2u64);
-            y = (y + mul_div_u256(x, scale, y)?) / U256::from(2u64);
-
-            Ok(Self::from_scaled(y))
-        }
-
-        /// Computes the base-10 logarithm.
-        ///
-        /// Uses the identity: log10(x) = ln(x) / ln(10)
-        ///
-        /// # Returns
-        ///
-        /// log₁₀(self)
-        ///
-        /// # Errors
-        ///
-        /// * `MathError::InvalidInput` - If self is zero
-        pub fn log10(&self) -> Result<Self> {
-            let ln_val = self.ln_fast()?;
-            let ln_10 = Self::from_scaled(LN_10);
-            ln_val.div(&ln_10)
-        }
-
-        /// Computes the base-2 logarithm.
-        ///
-        /// Uses the identity: log2(x) = ln(x) / ln(2)
-        ///
-        /// # Returns
-        ///
-        /// log₂(self)
-        ///
-        /// # Errors
-        ///
-        /// * `MathError::InvalidInput` - If self is zero
-        pub fn log2(&self) -> Result<Self> {
-            let ln_val = self.ln_fast()?;
-            let ln_2 = Self::from_scaled(LN_2);
-            ln_val.div(&ln_2)
-        }
-
-        /// Computes the logarithm with a custom base.
-        ///
-        /// Uses the identity: log_base(x) = ln(x) / ln(base)
-        ///
-        /// # Arguments
-        ///
-        /// * `base` - The logarithm base
-        ///
-        /// # Returns
-        ///
-        /// log_base(self)
-        ///
-        /// # Errors
-        ///
-        /// * `MathError::InvalidInput` - If self or base is zero or base is 1
-        pub fn log(&self, base: &Self) -> Result<Self> {
-            let ln_val = self.ln_fast()?;
-            let ln_base = base.ln_fast()?;
-            ln_val.div(&ln_base)
-        }
-
-        /// Returns the absolute value.
-        ///
-        /// For unsigned fixed-point numbers, this is always the identity function.
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// let x = FixedPoint::from_int(5);
-        /// assert_eq!(x.abs(), x);
-        /// ```
-        pub fn abs(&self) -> Self {
+    /// Returns the minimum of two values.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The value to compare with
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let x = FixedPoint::from_int(5);
+    /// let y = FixedPoint::from_int(3);
+    /// assert_eq!(x.min(&y), y);
+    /// ```
+    pub fn min(&self, other: &Self) -> Self {
+        if self.value < other.value {
             *self
-        }
-
-        /// Returns the minimum of two values.
-        ///
-        /// # Arguments
-        ///
-        /// * `other` - The value to compare with
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// let x = FixedPoint::from_int(5);
-        /// let y = FixedPoint::from_int(3);
-        /// assert_eq!(x.min(&y), y);
-        /// ```
-        pub fn min(&self, other: &Self) -> Self {
-            if self.value < other.value {
-                *self
-            } else {
-                *other
-            }
-        }
-
-        /// Returns the maximum of two values.
-        ///
-        /// # Arguments
-        ///
-        /// * `other` - The value to compare with
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// let x = FixedPoint::from_int(5);
-        /// let y = FixedPoint::from_int(3);
-        /// assert_eq!(x.max(&y), x);
-        /// ```
-        pub fn max(&self, other: &Self) -> Self {
-            if self.value > other.value {
-                *self
-            } else {
-                *other
-            }
-        }
-
-        /// Checks if this value is zero.
-        ///
-        /// # Returns
-        ///
-        /// `true` if the value is exactly zero, `false` otherwise
-        pub fn is_zero(&self) -> bool {
-            self.value.is_zero()
-        }
-
-        /// Returns the raw internal U256 representation for debugging.
-        ///
-        /// The U256 is stored as 4 u64 limbs.
-        ///
-        /// # Returns
-        ///
-        /// A tuple of (limb0, limb1, limb2, limb3)
-        pub fn debug_value(&self) -> (u64, u64, u64, u64) {
-            (self.value.0[0], self.value.0[1], self.value.0[2], self.value.0[3])
-        }
-
-        /// Returns the fractional part of this number.
-        ///
-        /// For example, the fractional part of 5.7 is 0.7.
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// let x = FixedPoint::from_fraction(5, 7, 10)?; // 5.7
-        /// let frac = x.frac()?;
-        /// // frac ≈ 0.7
-        /// ```
-        pub fn frac(&self) -> Result<Self> {
-            let scale = scale_u256();
-            let frac_part = self.value % scale;
-            Ok(Self::from_scaled(frac_part))
-        }
-
-        /// Returns the integer part (floor) of this number.
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// let x = FixedPoint::from_fraction(5, 7, 10)?; // 5.7
-        /// let floor = x.floor();
-        /// assert_eq!(floor.to_u64()?, 5);
-        /// ```
-        pub fn floor(&self) -> Self {
-            let scale = scale_u256();
-            let int_part = (self.value / scale) * scale;
-            Self::from_scaled(int_part)
-        }
-
-        /// Returns the ceiling of this number.
-        ///
-        /// Rounds up to the next integer if there's any fractional part.
-        ///
-        /// # Examples
-        ///
-        /// ```rust,ignore
-        /// let x = FixedPoint::from_fraction(5, 7, 10)?; // 5.7
-        /// let ceil = x.ceil()?;
-        /// assert_eq!(ceil.to_u64()?, 6);
-        /// ```
-        pub fn ceil(&self) -> Result<Self> {
-            let scale = scale_u256();
-            let int_part = self.value / scale;
-            let has_frac = self.value % scale != U256::zero();
-            
-            if has_frac {
-                let ceil_val = (int_part + U256::from(1u64)) * scale;
-                Ok(Self::from_scaled(ceil_val))
-            } else {
-                Ok(Self::from_scaled(int_part * scale))
-            }
+        } else {
+            *other
         }
     }
 
-    /// Error types for fixed-point math operations.
-    #[error_code]
-    pub enum MathError {
-        #[msg("Arithmetic overflow occurred")]
-        Overflow,
+    /// Returns the maximum of two values.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The value to compare with
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let x = FixedPoint::from_int(5);
+    /// let y = FixedPoint::from_int(3);
+    /// assert_eq!(x.max(&y), x);
+    /// ```
+    pub fn max(&self, other: &Self) -> Self {
+        if self.value > other.value {
+            *self
+        } else {
+            *other
+        }
+    }
+
+    /// Checks if this value is zero.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the value is exactly zero, `false` otherwise
+    pub fn is_zero(&self) -> bool {
+        self.value.is_zero()
+    }
+
+    /// Returns the raw internal U256 representation for debugging.
+    ///
+    /// The U256 is stored as 4 u64 limbs.
+    ///
+    /// # Returns
+    ///
+    /// A tuple of (limb0, limb1, limb2, limb3)
+    pub fn debug_value(&self) -> (u64, u64, u64, u64) {
+        (self.value.0[0], self.value.0[1], self.value.0[2], self.value.0[3])
+    }
+
+    /// Returns the fractional part of this number.
+    ///
+    /// For example, the fractional part of 5.7 is 0.7.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let x = FixedPoint::from_fraction(5, 7, 10)?; // 5.7
+    /// let frac = x.frac()?;
+    /// // frac ≈ 0.7
+    /// ```
+    pub fn frac(&self) -> Result<Self> {
+        let scale = scale_u256();
+        let frac_part = self.value % scale;
+        Ok(Self::from_scaled(frac_part))
+    }
+
+    /// Returns the integer part (floor) of this number.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let x = FixedPoint::from_fraction(5, 7, 10)?; // 5.7
+    /// let floor = x.floor();
+    /// assert_eq!(floor.to_u64()?, 5);
+    /// ```
+    pub fn floor(&self) -> Self {
+        let scale = scale_u256();
+        let int_part = (self.value / scale) * scale;
+        Self::from_scaled(int_part)
+    }
+
+    /// Returns the ceiling of this number.
+    ///
+    /// Rounds up to the next integer if there's any fractional part.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let x = FixedPoint::from_fraction(5, 7, 10)?; // 5.7
+    /// let ceil = x.ceil()?;
+    /// assert_eq!(ceil.to_u64()?, 6);
+    /// ```
+    pub fn ceil(&self) -> Result<Self> {
+        let scale = scale_u256();
+        let int_part = self.value / scale;
+        let has_frac = self.value % scale != U256::zero();
         
-        #[msg("Arithmetic underflow occurred")]
-        Underflow,
-        
-        #[msg("Division by zero")]
-        DivisionByZero,
-        
-        #[msg("Invalid input value")]
-        InvalidInput,
+        if has_frac {
+            let ceil_val = (int_part + U256::from(1u64)) * scale;
+            Ok(Self::from_scaled(ceil_val))
+        } else {
+            Ok(Self::from_scaled(int_part * scale))
+        }
     }
 }
 
+/// Error types for fixed-point math operations.
+#[error_code]
+pub enum MathError {
+    #[msg("Arithmetic overflow occurred")]
+    Overflow,
+    
+    #[msg("Arithmetic underflow occurred")]
+    Underflow,
+    
+    #[msg("Division by zero")]
+    DivisionByZero,
+    
+    #[msg("Invalid input value")]
+    InvalidInput,
+}
+
+
 #[cfg(test)]
 mod tests {
+    use crate::{FixedPoint, SCALE, U256};
 
-    use crate::{ra_solana_fixed_point_math::*, U256};
 
     // Adjusted epsilon values based on actual implementation accuracy
     const EPSILON: f64 = 0.01; // 1% tolerance for complex operations

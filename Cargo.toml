@@ -1,13 +1,13 @@
 [package]
 name = "ra-solana-fixed-point-math"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 description = "High-performance fixed-point arithmetic library optimized for Solana anchorlang programs"
 license = "MIT"  # Or your preferred 
 authors = ["Ra' <razzsense@gmail.com>"]
 repository = "https://github.com/ra-sun-god/ra-solana-fixed-point-math"  # Optional
 keywords = ["solana", "fixed-point", "math", "anchor", "defi"]
-categories = ["mathematics", "cryptography::arithmetic"]
+categories = ["mathematics", "cryptography", "finance"]
 documentation = "https://docs.rs/ra-solana-fixed-point-math"
 readme = "README.md"
 
