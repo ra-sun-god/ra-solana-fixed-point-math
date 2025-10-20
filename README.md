@@ -39,7 +39,7 @@ cargo add ra-solana-math
 ## 🚀 Quick Start
 
 ```rust
-use ra_solana_math::fixed_point_math::FixedPoint;
+use ra_solana_math::FixedPoint;
 
 // Create fixed-point numbers
 let price = FixedPoint::from_int(100);           // 100
@@ -61,7 +61,7 @@ let log_price = price.ln()?;                     // ln(100) ≈ 4.605
 ### Basic Arithmetic
 
 ```rust
-use ra_solana_math::fixed_point_math::FixedPoint;
+use ra_solana_math::FixedPoint;
 
 let a = FixedPoint::from_int(10);
 let b = FixedPoint::from_int(3);
@@ -174,7 +174,7 @@ let max = a.max(&b);                                 // 5.0
 
 ```rust
 use anchor_lang::prelude::*;
-use ra_solana_math::fixed_point_math::FixedPoint;
+use ra_solana_math::FixedPoint;
 
 #[program]
 pub mod my_defi_protocol {
